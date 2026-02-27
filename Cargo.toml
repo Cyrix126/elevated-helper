@@ -1,0 +1,12 @@
+[package]
+name = "elevated-helper"
+version = "0.1.0"
+edition = "2024"
+description = "Run elevated processes with stdin/stdout access from non-elevated programs on Windows"
+license = "GPL-v3"
+documentation = "https://github.com/cyrix126/elevated-helper"
+authors = ["cyrix126 <cyrix126@gupax.io>"]
+
+[dependencies]
+interprocess = "2.4"
+clap = { version = "4.5", features = ["derive"] }
