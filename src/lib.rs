@@ -16,10 +16,10 @@ use crate::cli::Args;
 pub mod cli;
 pub fn run(args: Args) -> std::io::Result<()> {
     let stdin_pipe: DuplexPipeStream<pipe_mode::Bytes> =
-        DuplexPipeStream::connect_by_path(args.name_pipe_stdin)?;
+        DuplexPipeStream::connect_by_path(format!(r"\\.\pipe\{}", args.name_pipe_stdin))?;
 
     let stdout_pipe: DuplexPipeStream<pipe_mode::Bytes> =
-        DuplexPipeStream::connect_by_path(args.name_pipe_stdout)?;
+        DuplexPipeStream::connect_by_path(format!(r"\\.\pipe\{}", args.name_pipe_stdout))?;
 
     let mut child = Command::new(&args.program_path)
         .args(&args.program_args)
