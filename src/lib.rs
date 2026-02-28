@@ -26,18 +26,15 @@ pub fn run(args: Args) -> std::io::Result<()> {
     let process_stdin = child.input().unwrap();
     let process_stdout = child.output().unwrap();
 
-    let stdin_handle = thread::spawn(move || {
+    thread::spawn(move || {
         bridge_input(stdin_pipe, process_stdin);
     });
 
-    let stdout_handle = thread::spawn(move || {
+    thread::spawn(move || {
         bridge_output(process_stdout, &mut stdout_pipe);
     });
 
     let status = child.wait(None)?;
-
-    stdin_handle.join().ok();
-    stdout_handle.join().ok();
 
     std::process::exit(status as i32);
 }
