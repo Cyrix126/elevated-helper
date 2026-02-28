@@ -120,6 +120,7 @@ dependencies = [
  "clap",
  "conpty",
  "interprocess",
+ "windows",
 ]
 
 [[package]]

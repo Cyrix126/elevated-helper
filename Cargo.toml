@@ -11,3 +11,5 @@ authors = ["cyrix126 <cyrix126@gupax.io>"]
 interprocess = "2.4"
 clap = { version = "4.5", features = ["derive"] }
 conpty = "0.7"
+windows = "0.54"
+[patch.crates-io]

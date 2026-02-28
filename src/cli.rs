@@ -17,6 +17,10 @@ pub struct Args {
 
     #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
     pub program_args: Vec<String>,
-    #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+    #[arg(long)]
     pub creation_flags: Option<u32>,
+    /// Priority can not be set by creation flags because Windows will always set elevated
+    /// processes to at least normal priority at their start.
+    /// The priority must be set after the process has been started.
+    pub priority: Option<u32>,
 }

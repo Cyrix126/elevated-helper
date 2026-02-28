@@ -9,6 +9,13 @@ use conpty::Process;
 use interprocess::os::windows::named_pipe::{DuplexPipeStream, pipe_mode};
 
 pub use interprocess;
+use windows::Win32::{
+    Foundation::CloseHandle,
+    System::Threading::{
+        OpenProcess, PROCESS_CREATION_FLAGS, PROCESS_QUERY_INFORMATION, PROCESS_SET_INFORMATION,
+        SetPriorityClass,
+    },
+};
 
 use crate::cli::Args;
 
@@ -26,6 +33,9 @@ pub fn run(args: Args) -> std::io::Result<()> {
         cmd.creation_flags(flags);
     }
     let mut child = Process::spawn(cmd)?;
+    if let Some(priority) = args.priority {
+        set_process_priority(child.pid(), PROCESS_CREATION_FLAGS(priority))?;
+    }
 
     let process_stdin = child.input().unwrap();
     let process_stdout = child.output().unwrap();
@@ -70,5 +80,26 @@ fn bridge_output(from: impl Read, to: &mut impl Write) {
             }
             Err(_) => break,
         }
+    }
+}
+
+fn set_process_priority(pid: u32, priority: PROCESS_CREATION_FLAGS) -> windows::core::Result<()> {
+    unsafe {
+        let handle = OpenProcess(
+            PROCESS_SET_INFORMATION | PROCESS_QUERY_INFORMATION,
+            false,
+            pid,
+        )?;
+        if handle.is_invalid() {
+            return Err(windows::core::Error::from_win32());
+        }
+
+        let success = SetPriorityClass(handle, priority);
+        CloseHandle(handle)?;
+        if success.is_ok() {
+            return Err(windows::core::Error::from_win32());
+        }
+
+        Ok(())
     }
 }
