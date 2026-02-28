@@ -1,5 +1,6 @@
 use std::{
     io::{BufRead, BufReader, Read, Write},
+    os::windows::process::CommandExt,
     process::Command,
     thread,
 };
@@ -21,6 +22,9 @@ pub fn run(args: Args) -> std::io::Result<()> {
 
     let mut cmd = Command::new(&args.program_path);
     cmd.args(&args.program_args);
+    if let Some(flags) = args.creation_flags {
+        cmd.creation_flags(flags);
+    }
     let mut child = Process::spawn(cmd)?;
 
     let process_stdin = child.input().unwrap();

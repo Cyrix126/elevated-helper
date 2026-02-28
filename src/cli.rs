@@ -17,4 +17,6 @@ pub struct Args {
 
     #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
     pub program_args: Vec<String>,
+    #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+    pub creation_flags: Option<u32>,
 }
