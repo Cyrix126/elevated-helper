@@ -96,7 +96,7 @@ fn set_process_priority(pid: u32, priority: PROCESS_CREATION_FLAGS) -> windows::
 
         let success = SetPriorityClass(handle, priority);
         CloseHandle(handle)?;
-        if success.is_ok() {
+        if success.is_err() {
             return Err(windows::core::Error::from_win32());
         }
 
