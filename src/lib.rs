@@ -28,10 +28,17 @@ pub fn run(args: Args) -> std::io::Result<()> {
     let mut stdout_pipe: DuplexPipeStream<pipe_mode::Bytes> =
         DuplexPipeStream::connect_by_path(format!(r"\\.\pipe\{}", args.name_pipe_stdout))?;
 
-    let mut child = Process::spawn(command(&args))?;
-    if let Some(priority) = args.priority {
-        set_process_priority(child.pid(), PROCESS_CREATION_FLAGS(priority))?;
-    }
+    let mut child = match spawn(&args) {
+        Ok(child) => child,
+        Err(e) => {
+            // The parent reads only the pipes.
+            let _ = writeln!(stdout_pipe, "Error: {}: {e}", args.program_path.display());
+            // Waits for the parent to read it: the parent drops a connection
+            // whose client exited before being accepted.
+            let _ = stdout_pipe.flush();
+            return Err(e);
+        }
+    };
 
     let process_stdin = child.input().unwrap();
     let process_stdout = child.output().unwrap();
@@ -47,6 +54,14 @@ pub fn run(args: Args) -> std::io::Result<()> {
     let status = child.wait(None)?;
 
     std::process::exit(status as i32);
+}
+
+fn spawn(args: &Args) -> std::io::Result<Process> {
+    let child = Process::spawn(command(args))?;
+    if let Some(priority) = args.priority {
+        set_process_priority(child.pid(), PROCESS_CREATION_FLAGS(priority))?;
+    }
+    Ok(child)
 }
 
 // conpty joins the program and the arguments into the command line as they are.
