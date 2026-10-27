@@ -1,4 +1,5 @@
 use std::{
+    ffi::OsString,
     io::{BufRead, BufReader, Read, Write},
     os::windows::process::CommandExt,
     process::Command,
@@ -27,12 +28,7 @@ pub fn run(args: Args) -> std::io::Result<()> {
     let mut stdout_pipe: DuplexPipeStream<pipe_mode::Bytes> =
         DuplexPipeStream::connect_by_path(format!(r"\\.\pipe\{}", args.name_pipe_stdout))?;
 
-    let mut cmd = Command::new(&args.program_path);
-    cmd.args(&args.program_args);
-    if let Some(flags) = args.creation_flags {
-        cmd.creation_flags(flags);
-    }
-    let mut child = Process::spawn(cmd)?;
+    let mut child = Process::spawn(command(&args))?;
     if let Some(priority) = args.priority {
         set_process_priority(child.pid(), PROCESS_CREATION_FLAGS(priority))?;
     }
@@ -51,6 +47,24 @@ pub fn run(args: Args) -> std::io::Result<()> {
     let status = child.wait(None)?;
 
     std::process::exit(status as i32);
+}
+
+// conpty joins the program and the arguments into the command line as they are.
+fn command(args: &Args) -> Command {
+    // Paths can not contain quotes.
+    let mut program = OsString::from("\"");
+    program.push(&args.program_path);
+    program.push("\"");
+    let mut cmd = Command::new(program);
+    cmd.args(
+        args.program_args
+            .iter()
+            .map(|arg| shell_escape::windows::escape(arg.into()).into_owned()),
+    );
+    if let Some(flags) = args.creation_flags {
+        cmd.creation_flags(flags);
+    }
+    cmd
 }
 
 fn bridge_input(mut from: DuplexPipeStream<pipe_mode::Bytes>, mut to: impl Write) {
@@ -101,5 +115,36 @@ fn set_process_priority(pid: u32, priority: PROCESS_CREATION_FLAGS) -> windows::
         }
 
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn command_keeps_arguments_whole() {
+        let args = Args {
+            name_pipe_stdin: String::new(),
+            name_pipe_stdout: String::new(),
+            program_path: r"C:\Users\Jo Doe\xmrig.exe".into(),
+            program_args: ["--rig-id=a b", "--threads", r#"x"y"#, r"C:\my logs\", ""]
+                .map(String::from)
+                .to_vec(),
+            creation_flags: None,
+            priority: None,
+        };
+        let cmd = command(&args);
+        assert_eq!(cmd.get_program(), r#""C:\Users\Jo Doe\xmrig.exe""#);
+        assert_eq!(
+            cmd.get_args().collect::<Vec<_>>(),
+            [
+                r#""--rig-id=a b""#,
+                "--threads",
+                r#""x\"y""#,
+                r#""C:\my logs\\""#,
+                r#""""#
+            ]
+        );
     }
 }
