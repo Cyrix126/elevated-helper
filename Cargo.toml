@@ -8,7 +8,7 @@ documentation = "https://github.com/cyrix126/elevated-helper"
 authors = ["cyrix126 <cyrix126@gupax.io>"]
 
 [dependencies]
-interprocess = "2.4"
+interprocess = "2.4.7"
 clap = { version = "4.5", features = ["derive"] }
 conpty = "0.7"
 windows = "0.54"
