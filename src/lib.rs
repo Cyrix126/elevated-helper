@@ -21,7 +21,7 @@ use windows::Win32::{
 use crate::cli::Args;
 
 pub mod cli;
-pub fn run(args: Args) -> std::io::Result<()> {
+pub fn run(args: Args) -> std::io::Result<u32> {
     let stdin_pipe: DuplexPipeStream<pipe_mode::Bytes> =
         DuplexPipeStream::connect_by_path(format!(r"\\.\pipe\{}", args.name_pipe_stdin))?;
 
@@ -51,9 +51,7 @@ pub fn run(args: Args) -> std::io::Result<()> {
         bridge_output(process_stdout, &mut stdout_pipe);
     });
 
-    let status = child.wait(None)?;
-
-    std::process::exit(status as i32);
+    Ok(child.wait(None)?)
 }
 
 fn spawn(args: &Args) -> std::io::Result<Process> {

@@ -2,6 +2,7 @@ use std::{
     io::{ErrorKind, Read},
     path::PathBuf,
     process::{Child, Command},
+    sync::atomic::{AtomicUsize, Ordering},
     thread::sleep,
     time::Duration,
 };
@@ -11,8 +12,10 @@ use elevated_helper::interprocess::os::windows::named_pipe::{
 };
 
 // Runs the helper as its parent does, returning the output pipe content and the exit code.
-fn run_helper(program: &str) -> (String, Option<i32>) {
-    let name = |end: &str| format!("elevated_helper_test_{}_{end}", std::process::id());
+fn run_helper(program: &str, args: &[&str]) -> (String, Option<i32>) {
+    static RUNS: AtomicUsize = AtomicUsize::new(0);
+    let run = RUNS.fetch_add(1, Ordering::Relaxed);
+    let name = |end: &str| format!("elevated_helper_test_{}_{run}_{end}", std::process::id());
     let listener = |name: &str| {
         PipeListenerOptions::new()
             .path(PathBuf::from(format!(r"\\.\pipe\{name}")))
@@ -25,33 +28,40 @@ fn run_helper(program: &str) -> (String, Option<i32>) {
     let mut helper = Command::new(env!("CARGO_BIN_EXE_elevated-helper"))
         .args(["--name-pipe-stdin", &name("stdin")])
         .args(["--name-pipe-stdout", &name("stdout")])
-        .args(["--program-path", program])
+        .args(["--program-path", program, "--"])
+        .args(args)
         .spawn()
         .unwrap();
     // The parent may accept the pipes after a start error.
     sleep(Duration::from_millis(200));
-    let _stdin = accept(&stdin, &mut helper);
-    let mut stdout = accept(&stdout, &mut helper);
     let mut output = Vec::new();
-    let mut buf = [0; 4096];
-    // The pipe ends with the helper.
-    while let Ok(n @ 1..) = stdout.read(&mut buf) {
-        output.extend_from_slice(&buf[..n]);
+    // A helper with nothing to write may exit before the parent accepts.
+    if let (Some(_stdin), Some(mut stdout)) =
+        (accept(&stdin, &mut helper), accept(&stdout, &mut helper))
+    {
+        let mut buf = [0; 4096];
+        // The pipe ends with the helper.
+        while let Ok(n @ 1..) = stdout.read(&mut buf) {
+            output.extend_from_slice(&buf[..n]);
+        }
     }
     let code = helper.wait().unwrap().code();
     (String::from_utf8_lossy(&output).into_owned(), code)
 }
 
-fn accept(listener: &PipeListener<Bytes, Bytes>, helper: &mut Child) -> DuplexPipeStream<Bytes> {
+fn accept(
+    listener: &PipeListener<Bytes, Bytes>,
+    helper: &mut Child,
+) -> Option<DuplexPipeStream<Bytes>> {
     loop {
         match listener.accept() {
             Ok(pipe) => {
                 pipe.set_nonblocking(false).unwrap();
-                return pipe;
+                return Some(pipe);
             }
             Err(e) if e.kind() == ErrorKind::WouldBlock => {
-                if let Some(status) = helper.try_wait().unwrap() {
-                    panic!("the helper exited before connecting: {status}");
+                if helper.try_wait().unwrap().is_some() {
+                    return None;
                 }
                 sleep(Duration::from_millis(10));
             }
@@ -62,10 +72,16 @@ fn accept(listener: &PipeListener<Bytes, Bytes>, helper: &mut Child) -> DuplexPi
 
 #[test]
 fn start_error_reaches_the_output_pipe() {
-    let (output, code) = run_helper(r"C:\missing\xmrig.exe");
+    let (output, code) = run_helper(r"C:\missing\xmrig.exe", &[]);
     assert!(
         output.starts_with(r"Error: C:\missing\xmrig.exe: "),
         "{output:?}"
     );
     assert_eq!(code, Some(1));
+}
+
+#[test]
+fn helper_exits_with_the_code_of_the_program() {
+    let (_, code) = run_helper(r"C:\windows\system32\cmd.exe", &["/C", "exit 3"]);
+    assert_eq!(code, Some(3));
 }
