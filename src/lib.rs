@@ -3,7 +3,9 @@ use std::{
     io::{BufRead, BufReader, Read, Write},
     os::windows::process::CommandExt,
     process::Command,
+    sync::mpsc,
     thread,
+    time::Duration,
 };
 
 use conpty::Process;
@@ -19,6 +21,8 @@ use windows::Win32::{
 };
 
 use crate::cli::Args;
+
+const OUTPUT_RELAY_TIMEOUT: Duration = Duration::from_secs(5);
 
 pub mod cli;
 pub fn run(args: Args) -> std::io::Result<u32> {
@@ -47,11 +51,19 @@ pub fn run(args: Args) -> std::io::Result<u32> {
         bridge_input(stdin_pipe, process_stdin);
     });
 
+    let (output_done, output_relayed) = mpsc::channel();
     thread::spawn(move || {
         bridge_output(process_stdout, &mut stdout_pipe);
+        let _ = output_done.send(());
     });
 
-    Ok(child.wait(None)?)
+    let code = child.wait(None)?;
+    // Closing the pseudo console ends its output once read, and each line is
+    // flushed until the parent read it.
+    drop(child);
+    // Bounded, as a parent that stopped reading would keep this process running.
+    let _ = output_relayed.recv_timeout(OUTPUT_RELAY_TIMEOUT);
+    Ok(code)
 }
 
 fn spawn(args: &Args) -> std::io::Result<Process> {
