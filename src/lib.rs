@@ -92,19 +92,22 @@ fn command(args: &Args) -> Command {
     cmd
 }
 
-fn bridge_input(mut from: DuplexPipeStream<pipe_mode::Bytes>, mut to: impl Write) {
+fn bridge_input(mut from: impl Read, mut to: impl Write) {
     let mut buf = [0u8; 4096];
     loop {
         match from.read(&mut buf) {
             Ok(0) | Err(_) => break,
             Ok(n) => {
                 if to.write_all(&buf[..n]).is_err() {
-                    break;
+                    return;
                 }
                 let _ = to.flush();
             }
         }
     }
+    // Ctrl+C, as nothing else could stop the program once the parent is gone.
+    let _ = to.write_all(&[0x03]);
+    let _ = to.flush();
 }
 
 fn bridge_output(from: impl Read, to: &mut impl Write) {
@@ -171,5 +174,30 @@ mod tests {
                 r#""""#
             ]
         );
+    }
+
+    #[test]
+    fn a_parent_gone_stops_the_program() {
+        let mut program_input = Vec::new();
+        bridge_input(&b"v\r\n"[..], &mut program_input);
+        assert_eq!(program_input, b"v\r\n\x03");
+    }
+
+    #[test]
+    fn a_program_gone_gets_no_ctrl_c() {
+        // Fails every write, counting them.
+        struct Gone(usize);
+        impl Write for Gone {
+            fn write(&mut self, _: &[u8]) -> std::io::Result<usize> {
+                self.0 += 1;
+                Err(std::io::ErrorKind::BrokenPipe.into())
+            }
+            fn flush(&mut self) -> std::io::Result<()> {
+                Ok(())
+            }
+        }
+        let mut program = Gone(0);
+        bridge_input(&b"v\r\n"[..], &mut program);
+        assert_eq!(program.0, 1);
     }
 }
