@@ -92,3 +92,9 @@ fn last_lines_of_the_program_reach_the_parent() {
     assert!(output.contains("last line"), "{output:?}");
     assert_eq!(code, Some(0));
 }
+
+#[test]
+fn a_last_line_cut_before_its_newline_reaches_the_parent() {
+    let (output, _) = run_helper(r"C:\windows\system32\cmd.exe", &["/C", "<nul set /p =last"]);
+    assert!(output.contains("last"), "{output:?}");
+}

@@ -58,7 +58,7 @@ pub fn run(args: Args) -> std::io::Result<u32> {
     });
 
     let code = child.wait(None)?;
-    // Closing the pseudo console ends its output once read, and each line is
+    // Closing the pseudo console ends its output once read, and each write is
     // flushed until the parent read it.
     drop(child);
     // Bounded, as a parent that stopped reading would keep this process running.
@@ -111,17 +111,15 @@ fn bridge_input(mut from: impl Read, mut to: impl Write) {
 }
 
 fn bridge_output(from: impl Read, to: &mut impl Write) {
-    let reader = BufReader::new(from);
-    for line in reader.lines() {
-        match line {
-            Ok(line) => {
-                if writeln!(to, "{}", line).is_err() {
-                    break;
-                }
-                let _ = to.flush();
-            }
-            Err(_) => break,
+    let mut reader = BufReader::new(from);
+    // The console output ends when conpty's read fails, after the console closed.
+    while let Ok(output) = reader.fill_buf() {
+        let n = output.len();
+        if to.write_all(output).is_err() {
+            break;
         }
+        let _ = to.flush();
+        reader.consume(n);
     }
 }
 
@@ -199,5 +197,30 @@ mod tests {
         let mut program = Gone(0);
         bridge_input(&b"v\r\n"[..], &mut program);
         assert_eq!(program.0, 1);
+    }
+
+    // Returns these reads in turn, then the error of a closed pseudo console.
+    struct Reads(std::collections::VecDeque<&'static [u8]>);
+
+    impl Read for Reads {
+        fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+            let read = self.0.pop_front().ok_or(std::io::ErrorKind::BrokenPipe)?;
+            buf[..read.len()].copy_from_slice(read);
+            Ok(read.len())
+        }
+    }
+
+    #[test]
+    fn a_last_line_cut_before_its_newline_reaches_the_parent() {
+        let mut parent = Vec::new();
+        bridge_output(Reads([b"first\r\nlast".as_slice()].into()), &mut parent);
+        assert_eq!(parent, b"first\r\nlast");
+    }
+
+    #[test]
+    fn an_empty_write_of_conhost_keeps_the_output_relayed() {
+        let mut parent = Vec::new();
+        bridge_output(Reads([b"ab".as_slice(), b"", b"c\n"].into()), &mut parent);
+        assert_eq!(parent, b"abc\n");
     }
 }
