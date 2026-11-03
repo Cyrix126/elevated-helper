@@ -60,7 +60,8 @@ pub fn run(args: Args) -> std::io::Result<u32> {
     let code = child.wait(None)?;
     // Closing the pseudo console ends its output once read, and each write is
     // flushed until the parent read it.
-    drop(child);
+    // In a thread, as the close waits for that read too.
+    thread::spawn(move || drop(child));
     // Bounded, as a parent that stopped reading would keep this process running.
     let _ = output_relayed.recv_timeout(OUTPUT_RELAY_TIMEOUT);
     Ok(code)
@@ -116,6 +117,10 @@ fn bridge_output(from: impl Read, to: &mut impl Write) {
     while let Ok(output) = reader.fill_buf() {
         let n = output.len();
         if to.write_all(output).is_err() {
+            // Closing the pseudo console waits for its output to be read.
+            while let Ok(n) = reader.fill_buf().map(<[u8]>::len) {
+                reader.consume(n);
+            }
             break;
         }
         let _ = to.flush();
@@ -222,5 +227,15 @@ mod tests {
         let mut parent = Vec::new();
         bridge_output(Reads([b"ab".as_slice(), b"", b"c\n"].into()), &mut parent);
         assert_eq!(parent, b"abc\n");
+    }
+
+    #[test]
+    fn output_is_read_to_the_end_once_the_parent_is_gone() {
+        // With a zero-byte write of conhost.
+        let mut output = Reads([b"first\n".as_slice(), b"", b"last"].into());
+        // Fails every write.
+        let mut parent: &mut [u8] = &mut [];
+        bridge_output(&mut output, &mut parent);
+        assert!(output.0.is_empty());
     }
 }
