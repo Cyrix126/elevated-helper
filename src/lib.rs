@@ -2,6 +2,7 @@ use std::{
     ffi::OsString,
     io::{BufRead, BufReader, Read, Write},
     os::windows::process::CommandExt,
+    path::Path,
     process::Command,
     sync::mpsc,
     thread,
@@ -75,18 +76,24 @@ fn spawn(args: &Args) -> std::io::Result<Process> {
     Ok(child)
 }
 
-// conpty joins the program and the arguments into the command line as they are.
-fn command(args: &Args) -> Command {
+/// The command that runs a program in a pseudo console, which joins the program and the
+/// arguments into the command line as they are.
+pub fn conpty_command(program_path: &Path, program_args: &[String]) -> Command {
     // Paths can not contain quotes.
     let mut program = OsString::from("\"");
-    program.push(&args.program_path);
+    program.push(program_path);
     program.push("\"");
     let mut cmd = Command::new(program);
     cmd.args(
-        args.program_args
+        program_args
             .iter()
             .map(|arg| shell_escape::windows::escape(arg.into()).into_owned()),
     );
+    cmd
+}
+
+fn command(args: &Args) -> Command {
+    let mut cmd = conpty_command(&args.program_path, &args.program_args);
     if let Some(flags) = args.creation_flags {
         cmd.creation_flags(flags);
     }
